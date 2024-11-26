@@ -4,12 +4,12 @@ import Charts
 struct VMsWidget: View {
     let vms: [VirtualMachine]
     let servers: [Server]
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
-        VStack(spacing: 16) {
-            ForEach(vms) { vm in
-                VMCard(vm: vm, server: servers.first(where: { $0.id == vm.parentServerId })!)
-            }
+        ForEach(vms) { vm in
+            VMCard(vm: vm, server: servers.first(where: { $0.id == vm.parentServerId })!)
+                .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
         }
     }
 }
@@ -17,6 +17,7 @@ struct VMsWidget: View {
 struct VMCard: View {
     let vm: VirtualMachine
     let server: Server
+    @AppStorage("showAdvancedInfo") private var showAdvancedInfo: Bool = false
     
     var body: some View {
         NavigationLink(destination: VMDetailView(vm: vm, server: server)) {
@@ -30,6 +31,10 @@ struct VMCard: View {
                 }
                 
                 Text("Host: \(server.name)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text(vm.ipAddress)
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
@@ -48,15 +53,17 @@ struct VMCard: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                ResourceGauge(title: "CPU", value: vm.resources.cpuUsage, systemImage: "cpu")
-                ResourceGauge(title: "Memory", value: vm.resources.memoryUsage, systemImage: "memorychip")
-                
-                ForEach(vm.resources.drives) { drive in
-                    ResourceGauge(
-                        title: "Storage (\(drive.name))",
-                        value: drive.usagePercentage,
-                        systemImage: "externaldrive"
-                    )
+                if showAdvancedInfo {
+                    ResourceGauge(title: "CPU", value: vm.resources.cpuUsage, systemImage: "cpu")
+                    ResourceGauge(title: "Memory", value: vm.resources.memoryUsage, systemImage: "memorychip")
+                    
+                    ForEach(vm.resources.drives) { drive in
+                        ResourceGauge(
+                            title: "Storage (\(drive.name))",
+                            value: drive.usagePercentage,
+                            systemImage: "externaldrive"
+                        )
+                    }
                 }
             }
             .padding()

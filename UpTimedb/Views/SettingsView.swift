@@ -57,6 +57,18 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                
+                Toggle("Show Advanced System Info", isOn: $showAdvancedInfo)
+                
+                if showAdvancedInfo {
+                    Text("Shows detailed system information directly on the home screen")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("System details will only be shown when viewing individual items")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             
             Section(header: Text("Simulation Settings")) {
@@ -242,20 +254,6 @@ struct SettingsView: View {
                 Link("Source Code", destination: URL(string: "https://github.com/yourusername/UpTimedb")!)
                 
                 Link("Report an Issue", destination: URL(string: "https://github.com/yourusername/UpTimedb/issues")!)
-            }
-            
-            Section(header: Text("Home Screen")) {
-                Toggle("Show Advanced System Info", isOn: $showAdvancedInfo)
-                
-                if showAdvancedInfo {
-                    Text("Shows detailed system information directly on the home screen")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("System details will only be shown when viewing individual items")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
         }
         .navigationTitle("Settings")

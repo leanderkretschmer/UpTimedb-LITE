@@ -5,15 +5,13 @@ struct ServersListWidget: View {
     let servers: [Server]
     let services: [Service]
     @ObservedObject var monitoringService: MonitoringService
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
-        VStack(spacing: 16) {
-            ForEach(servers) { server in
-                ServerCardView(server: server, services: services, monitoringService: monitoringService)
-                    .frame(maxWidth: .infinity)
-            }
+        ForEach(servers) { server in
+            ServerCardView(server: server, services: services, monitoringService: monitoringService)
+                .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 

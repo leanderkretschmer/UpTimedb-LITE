@@ -111,6 +111,7 @@ struct CollapsibleSection<Content: View>: View {
     let subtitle: String
     let isExpanded: Bool
     let content: () -> Content
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -127,8 +128,18 @@ struct CollapsibleSection<Content: View>: View {
                 .foregroundColor(.secondary)
             
             if isExpanded {
-                content()
-                    .frame(maxWidth: .infinity)
+                if horizontalSizeClass == .regular {
+                    // Landscape: Grid layout
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16)
+                    ], spacing: 16) {
+                        content()
+                    }
+                } else {
+                    // Portrait: Stack layout
+                    content()
+                }
             }
         }
         .padding()

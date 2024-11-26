@@ -4,15 +4,13 @@ import Charts
 struct ServicesWidget: View {
     let services: [Service]
     let servers: [Server]
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
-        VStack(spacing: 16) {
-            ForEach(services) { service in
-                ServiceCard(service: service, server: servers.first(where: { $0.id == service.serverId })!)
-                    .frame(maxWidth: .infinity)
-            }
+        ForEach(services) { service in
+            ServiceCard(service: service, server: servers.first(where: { $0.id == service.serverId })!)
+                .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
