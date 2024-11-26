@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum SystemStatus: String {
+enum SystemStatus: String, CaseIterable {
     case online = "Online"
     case offline = "Offline"
     case warning = "Warning"
@@ -17,21 +17,16 @@ enum SystemStatus: String {
 
 struct SystemResources {
     var cpuUsage: Double // Percentage (0-100)
-    var ramUsage: Double // Percentage (0-100)
-    var gpuUsage: Double // Percentage (0-100)
-    var networkUsage: Double // Percentage (0-100)
+    var memoryUsage: Double // Percentage (0-100)
     var drives: [DriveInfo]
     
     static func mockResources() -> SystemResources {
         SystemResources(
             cpuUsage: Double.random(in: 20...80),
-            ramUsage: Double.random(in: 30...90),
-            gpuUsage: Double.random(in: 10...95),
-            networkUsage: Double.random(in: 5...60),
+            memoryUsage: Double.random(in: 30...90),
             drives: [
-                DriveInfo(name: "System (C:)", totalSpace: 512, usedSpace: 384),
-                DriveInfo(name: "Data (D:)", totalSpace: 1024, usedSpace: 768),
-                DriveInfo(name: "Backup (E:)", totalSpace: 2048, usedSpace: 1024)
+                DriveInfo(name: "System", totalSpace: 512, usedSpace: Double.random(in: 200...400)),
+                DriveInfo(name: "Data", totalSpace: 1024, usedSpace: Double.random(in: 400...800))
             ]
         )
     }
@@ -39,9 +34,7 @@ struct SystemResources {
     mutating func updateMockValues() {
         // Simulate realistic changes in resource usage
         cpuUsage = max(0, min(100, cpuUsage + Double.random(in: -10...10)))
-        ramUsage = max(0, min(100, ramUsage + Double.random(in: -5...5)))
-        gpuUsage = max(0, min(100, gpuUsage + Double.random(in: -8...8)))
-        networkUsage = max(0, min(100, networkUsage + Double.random(in: -15...15)))
+        memoryUsage = max(0, min(100, memoryUsage + Double.random(in: -5...5)))
         
         // Simulate small changes in drive usage
         for i in drives.indices {
@@ -75,17 +68,23 @@ struct Server: Identifiable {
     var lastPing: Double
     var resources: SystemResources
     var notificationSettings: ServerNotificationSettings
+    var ipAddress: String
+    var location: String  // e.g., "Data Center 1"
+    var type: String      // e.g., "Physical", "Cloud"
     
     static func mockServers(count: Int) -> [Server] {
         return (0..<count).map { i in
             Server(
                 id: UUID(),
-                name: "Server \(i + 1)",
+                name: SimulationConfig.serverNames[i % SimulationConfig.serverNames.count],
                 status: .online,
-                pingHistory: [],
+                pingHistory: Array(repeating: Double.random(in: 5...50), count: 30),
                 lastPing: Double.random(in: 5...50),
                 resources: .mockResources(),
-                notificationSettings: ServerNotificationSettings()
+                notificationSettings: ServerNotificationSettings(),
+                ipAddress: "192.168.0.\(10 + i)",
+                location: "Data Center \(i % 3 + 1)",
+                type: i % 2 == 0 ? "Physical" : "Cloud"
             )
         }
     }
@@ -104,20 +103,44 @@ struct Service: Identifiable {
             let serverIndex = i % servers.count
             return Service(
                 id: UUID(),
-                name: "Service \(i + 1)",
+                name: SimulationConfig.serviceNames[i % SimulationConfig.serviceNames.count],
                 serverId: servers[serverIndex].id,
                 status: .online,
-                pingHistory: [],
+                pingHistory: Array(repeating: Double.random(in: 5...50), count: 30),
                 lastPing: Double.random(in: 5...50)
             )
         }
     }
 }
 
-struct SimulationConfig {
-    var numberOfServers: Int = 2
-    var numberOfServices: Int = 4
+struct VirtualMachine: Identifiable {
+    let id: UUID
+    var name: String
+    var status: SystemStatus
+    var resources: SystemResources
+    var lastPing: Double
+    var pingHistory: [Double]
+    var ipAddress: String
+    var parentServerId: UUID
     
+    static func mockVMs(count: Int, servers: [Server]) -> [VirtualMachine] {
+        return (0..<count).map { i in
+            let parentServer = servers[i % servers.count]
+            return VirtualMachine(
+                id: UUID(),
+                name: "VM-\(SimulationConfig.serverNames[i % SimulationConfig.serverNames.count])",
+                status: .online,
+                resources: .mockResources(),
+                lastPing: Double.random(in: 5...50),
+                pingHistory: Array(repeating: Double.random(in: 5...50), count: 30),
+                ipAddress: "192.168.1.\(100 + i)",
+                parentServerId: parentServer.id
+            )
+        }
+    }
+}
+
+struct SimulationConfig {
     static let serverNames = [
         "Web Server",
         "Database Server",

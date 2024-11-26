@@ -15,19 +15,21 @@ struct ServiceDetailView: View {
                 }
                 
                 HStack {
-                    Text("Current Ping")
+                    Text("Response Time")
                     Spacer()
                     Text("\(Int(service.lastPing))ms")
+                        .foregroundColor(.secondary)
                 }
                 
                 HStack {
-                    Text("Server")
+                    Text("Host Server")
                     Spacer()
                     Text(server.name)
+                        .foregroundColor(.secondary)
                 }
             }
             
-            Section("Ping History") {
+            Section("Response Time History") {
                 Chart {
                     ForEach(Array(service.pingHistory.enumerated()), id: \.offset) { index, ping in
                         LineMark(
@@ -35,11 +37,9 @@ struct ServiceDetailView: View {
                             y: .value("Ping", ping)
                         )
                         .foregroundStyle(service.status.color)
-                        .interpolationMethod(.catmullRom)
                     }
                 }
                 .frame(height: 200)
-                .padding(.vertical)
             }
         }
         .navigationTitle(service.name)

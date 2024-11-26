@@ -6,17 +6,13 @@ struct ServicesWidget: View {
     let servers: [Server]
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Services")
-                .font(.headline)
-            
+        VStack(spacing: 16) {
             ForEach(services) { service in
                 ServiceCard(service: service, server: servers.first(where: { $0.id == service.serverId })!)
+                    .frame(maxWidth: .infinity)
             }
         }
-        .padding()
-        .background(Color(uiColor: .secondarySystemBackground))
-        .cornerRadius(12)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -55,6 +51,7 @@ struct ServiceCard: View {
                     .foregroundColor(.secondary)
             }
             .padding()
+            .frame(maxWidth: .infinity)
             .background(Color(uiColor: .tertiarySystemBackground))
             .cornerRadius(8)
         }

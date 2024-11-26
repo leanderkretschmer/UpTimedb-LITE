@@ -6,6 +6,7 @@ import BackgroundTasks
 class MonitoringService: ObservableObject {
     @Published var servers: [Server] = []
     @Published var services: [Service] = []
+    @Published var virtualMachines: [VirtualMachine] = []
     @Published var overallStatus: SystemStatus = .online
     @Published var isSimulated: Bool = true
     @Published var simulatedServers: Int = 2
@@ -14,6 +15,10 @@ class MonitoringService: ObservableObject {
     @Published var simulateWarnings: Bool = false
     @Published var dynamicAppIcon: Bool = true
     @Published var backgroundCheckInterval: Double = 300 // 5 minutes default
+    @Published var isDeepTesting = false
+    @Published var deepTestProgress = 0.0
+    private var deepTestTimer: Timer?
+    @Published var simulatedVMs: Int = 2
     
     private var timer: Timer?
     private var warningTimer: Timer?
@@ -28,6 +33,18 @@ class MonitoringService: ObservableObject {
             setupMockData()
             startMonitoring()
         }
+        
+        // Add observer for dark mode changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateAppIconForAppearanceChange),
+            name: UIApplication.significantTimeChangeNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func updateAppIconForAppearanceChange() {
+        updateAppIcon()
     }
     
     private func setupNotifications() {
@@ -43,6 +60,7 @@ class MonitoringService: ObservableObject {
     func setupMockData() {
         servers = Server.mockServers(count: simulatedServers)
         services = Service.mockServices(servers: servers, count: simulatedServices)
+        virtualMachines = VirtualMachine.mockVMs(count: simulatedVMs, servers: servers)
         resetSimulationStatus()
     }
     
@@ -67,12 +85,89 @@ class MonitoringService: ObservableObject {
     
     private func updateMonitoringData() {
         if isSimulated {
-            updateSimulatedData()
-        } else {
-            // Here we would make API calls to get real data
+            // Update servers
+            for i in servers.indices {
+                if servers[i].status == .offline { continue }
+                
+                let range: ClosedRange<Double> = servers[i].status == .warning ? 
+                    100.0...200.0 : // Higher ping for warning state
+                    2.0...50.0     // Normal ping range
+                
+                let newPing = Double.random(in: range)
+                servers[i].lastPing = newPing
+                
+                // Update ping history
+                if servers[i].pingHistory.isEmpty {
+                    servers[i].pingHistory.append(newPing)
+                } else {
+                    let lastPing = servers[i].pingHistory.last!
+                    let smoothedPing = lastPing * 0.7 + newPing * 0.3
+                    servers[i].pingHistory.append(smoothedPing)
+                }
+                
+                if servers[i].pingHistory.count > maxHistoryPoints {
+                    servers[i].pingHistory.removeFirst()
+                }
+                
+                // Update system resources
+                servers[i].resources.updateMockValues()
+            }
+            
+            // Update services
+            for i in services.indices {
+                if services[i].status == .offline { continue }
+                
+                let range: ClosedRange<Double> = services[i].status == .warning ? 
+                    100.0...200.0 : // Higher ping for warning state
+                    2.0...50.0     // Normal ping range
+                
+                let newPing = Double.random(in: range)
+                services[i].lastPing = newPing
+                
+                // Update ping history
+                if services[i].pingHistory.isEmpty {
+                    services[i].pingHistory.append(newPing)
+                } else {
+                    let lastPing = services[i].pingHistory.last!
+                    let smoothedPing = lastPing * 0.7 + newPing * 0.3
+                    services[i].pingHistory.append(smoothedPing)
+                }
+                
+                if services[i].pingHistory.count > maxHistoryPoints {
+                    services[i].pingHistory.removeFirst()
+                }
+            }
+            
+            // Update virtual machines
+            for i in virtualMachines.indices {
+                if virtualMachines[i].status == .offline { continue }
+                
+                let range: ClosedRange<Double> = virtualMachines[i].status == .warning ? 
+                    100.0...200.0 : // Higher ping for warning state
+                    2.0...50.0     // Normal ping range
+                
+                let newPing = Double.random(in: range)
+                virtualMachines[i].lastPing = newPing
+                
+                // Update ping history
+                if virtualMachines[i].pingHistory.isEmpty {
+                    virtualMachines[i].pingHistory.append(newPing)
+                } else {
+                    let lastPing = virtualMachines[i].pingHistory.last!
+                    let smoothedPing = lastPing * 0.7 + newPing * 0.3
+                    virtualMachines[i].pingHistory.append(smoothedPing)
+                }
+                
+                if virtualMachines[i].pingHistory.count > maxHistoryPoints {
+                    virtualMachines[i].pingHistory.removeFirst()
+                }
+                
+                // Update system resources
+                virtualMachines[i].resources.updateMockValues()
+            }
+            
+            updateOverallStatus()
         }
-        
-        updateOverallStatus()
     }
     
     private func registerBackgroundTask() {
@@ -130,69 +225,14 @@ class MonitoringService: ObservableObject {
         }
     }
     
-    private func updateSimulatedData() {
-        // Update servers
-        for i in servers.indices {
-            if servers[i].status == .offline { continue }
-            
-            let range: ClosedRange<Double> = servers[i].status == .warning ? 
-                100.0...200.0 : // Higher ping for warning state
-                2.0...50.0     // Normal ping range
-            
-            let newPing = Double.random(in: range)
-            servers[i].lastPing = newPing
-            
-            // Update ping history
-            if servers[i].pingHistory.isEmpty {
-                servers[i].pingHistory.append(newPing)
-            } else {
-                let lastPing = servers[i].pingHistory.last!
-                let smoothedPing = lastPing * 0.7 + newPing * 0.3
-                servers[i].pingHistory.append(smoothedPing)
-            }
-            
-            if servers[i].pingHistory.count > maxHistoryPoints {
-                servers[i].pingHistory.removeFirst()
-            }
-            
-            // Update system resources
-            servers[i].resources.updateMockValues()
-        }
-        
-        // Update services
-        for i in services.indices {
-            if services[i].status == .offline { continue }
-            
-            let range: ClosedRange<Double> = services[i].status == .warning ? 
-                100.0...200.0 : // Higher ping for warning state
-                2.0...50.0     // Normal ping range
-            
-            let newPing = Double.random(in: range)
-            services[i].lastPing = newPing
-            
-            // Update ping history
-            if services[i].pingHistory.isEmpty {
-                services[i].pingHistory.append(newPing)
-            } else {
-                let lastPing = services[i].pingHistory.last!
-                let smoothedPing = lastPing * 0.7 + newPing * 0.3
-                services[i].pingHistory.append(smoothedPing)
-            }
-            
-            if services[i].pingHistory.count > maxHistoryPoints {
-                services[i].pingHistory.removeFirst()
-            }
-        }
-        
-        updateOverallStatus()
-    }
-    
     private func updateOverallStatus() {
         if servers.contains(where: { $0.status == .offline }) || 
-           services.contains(where: { $0.status == .offline }) {
+           services.contains(where: { $0.status == .offline }) ||
+           virtualMachines.contains(where: { $0.status == .offline }) {
             overallStatus = .offline
         } else if servers.contains(where: { $0.status == .warning }) || 
-                  services.contains(where: { $0.status == .warning }) {
+                  services.contains(where: { $0.status == .warning }) ||
+                  virtualMachines.contains(where: { $0.status == .warning }) {
             overallStatus = .warning
         } else {
             overallStatus = .online
@@ -217,64 +257,91 @@ class MonitoringService: ObservableObject {
     
     func updateSimulationSettings() {
         if !simulateDowntime && !simulateWarnings {
-            // Reset all statuses to online
-            resetSimulationStatus()
+            resetAllStatuses()
             warningTimer?.invalidate()
             warningTimer = nil
             return
         }
         
+        // Handle warnings simulation
         if simulateWarnings {
-            // Start warning simulation timer if not already running
-            if warningTimer == nil {
-                warningTimer = Timer.scheduledTimer(withTimeInterval: warningInterval, repeats: true) { [weak self] _ in
-                    self?.simulateRandomWarning()
-                }
-                // Trigger initial warning
-                simulateRandomWarning()
+            // Take random items to warning state
+            if let index = servers.indices.randomElement() {
+                servers[index].status = .warning
+                servers[index].lastPing = Double.random(in: 100...200)
             }
-        } else {
-            warningTimer?.invalidate()
-            warningTimer = nil
+            if let index = services.indices.randomElement() {
+                services[index].status = .warning
+                services[index].lastPing = Double.random(in: 100...200)
+            }
+            if let index = virtualMachines.indices.randomElement() {
+                virtualMachines[index].status = .warning
+                virtualMachines[index].lastPing = Double.random(in: 100...200)
+            }
         }
         
+        // Handle downtime simulation
         if simulateDowntime {
-            // Simulate one server and its services going offline
-            if let randomServerIndex = servers.indices.randomElement() {
-                servers[randomServerIndex].status = .offline
-                servers[randomServerIndex].lastPing = 0
+            // Take a random server and its services offline
+            if let serverIndex = servers.indices.randomElement() {
+                // Take the server offline
+                servers[serverIndex].status = .offline
+                servers[serverIndex].lastPing = 0
                 
-                // Take down all services on this server
-                for i in services.indices where services[i].serverId == servers[randomServerIndex].id {
+                // Take all services on this server offline
+                let serverId = servers[serverIndex].id
+                for i in services.indices where services[i].serverId == serverId {
                     services[i].status = .offline
                     services[i].lastPing = 0
                 }
+                
+                // Take all VMs on this server offline
+                for i in virtualMachines.indices where virtualMachines[i].parentServerId == serverId {
+                    virtualMachines[i].status = .offline
+                    virtualMachines[i].lastPing = 0
+                }
             }
         }
         
+        // Update overall status and app icon
         updateOverallStatus()
     }
     
     private func simulateRandomWarning() {
-        // Reset any previous warnings
-        for i in servers.indices where servers[i].status == .warning {
-            servers[i].status = .online
-        }
-        for i in services.indices where services[i].status == .warning {
-            services[i].status = .online
-        }
-        
-        // Randomly choose between server and service warning
+        // Choose between server and service warning
         if Bool.random() {
+            // Server warning
             if let randomServerIndex = servers.indices.randomElement() {
-                servers[randomServerIndex].status = .warning
+                // Only set warning if server isn't offline
+                if servers[randomServerIndex].status != .offline {
+                    servers[randomServerIndex].status = .warning
+                    servers[randomServerIndex].lastPing = Double.random(in: 100...200)
+                    
+                    // Update ping history
+                    if servers[randomServerIndex].pingHistory.count > maxHistoryPoints {
+                        servers[randomServerIndex].pingHistory.removeFirst()
+                    }
+                    servers[randomServerIndex].pingHistory.append(servers[randomServerIndex].lastPing)
+                }
             }
         } else {
+            // Service warning
             if let randomServiceIndex = services.indices.randomElement() {
-                services[randomServiceIndex].status = .warning
+                // Only set warning if service isn't offline
+                if services[randomServiceIndex].status != .offline {
+                    services[randomServiceIndex].status = .warning
+                    services[randomServiceIndex].lastPing = Double.random(in: 100...200)
+                    
+                    // Update ping history
+                    if services[randomServiceIndex].pingHistory.count > maxHistoryPoints {
+                        services[randomServiceIndex].pingHistory.removeFirst()
+                    }
+                    services[randomServiceIndex].pingHistory.append(services[randomServiceIndex].lastPing)
+                }
             }
         }
         
+        // Update overall status and app icon
         updateOverallStatus()
     }
     
@@ -284,14 +351,11 @@ class MonitoringService: ObservableObject {
             return
         }
         
-        let isDarkMode = UITraitCollection.current.userInterfaceStyle == .dark
-        let iconPrefix = isDarkMode ? "icon_dark" : "icon_any"
-        
         switch overallStatus {
-        case .offline:
-            setAppIcon("\(iconPrefix)_error")
         case .warning:
-            setAppIcon("\(iconPrefix)_warning")
+            setAppIcon("AppIcon-Warning")
+        case .offline:
+            setAppIcon("AppIcon-Error")
         case .online:
             setAppIcon(nil) // Use default icon
         }
@@ -305,5 +369,151 @@ class MonitoringService: ObservableObject {
                 }
             }
         }
+    }
+    
+    func startDeepTest() {
+        isDeepTesting = true
+        deepTestProgress = 0.0
+        
+        // Reset and create test data
+        servers = Server.mockServers(count: 5)
+        services = Service.mockServices(servers: servers, count: 8)
+        virtualMachines = VirtualMachine.mockVMs(count: 4, servers: servers)
+        
+        // Start deep test cycle
+        deepTestTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.runDeepTestCycle()
+        }
+        
+        // Initial test cycle
+        runDeepTestCycle()
+    }
+    
+    func stopDeepTest() {
+        isDeepTesting = false
+        deepTestTimer?.invalidate()
+        deepTestTimer = nil
+        deepTestProgress = 0.0
+        setupMockData() // Reset to normal mock data
+    }
+    
+    private func runDeepTestCycle() {
+        // Simulate different scenarios
+        let scenario = Int.random(in: 0...4)
+        
+        switch scenario {
+        case 0: // All normal
+            resetAllStatuses()
+        case 1: // Warning state
+            simulateRandomWarning()
+        case 2: // Error state
+            simulateRandomError()
+        case 3: // Mixed state
+            simulateMixedState()
+        case 4: // Recovery state
+            simulateRecovery()
+        default:
+            break
+        }
+        
+        // Update progress
+        deepTestProgress += 0.1
+        if deepTestProgress >= 1.0 {
+            deepTestProgress = 0.0
+        }
+        
+        // Test notifications
+        testNotification()
+        
+        updateOverallStatus()
+    }
+    
+    private func simulateRandomError() {
+        // Take random items offline
+        if let index = servers.indices.randomElement() {
+            servers[index].status = .offline
+            servers[index].lastPing = 0
+        }
+        if let index = services.indices.randomElement() {
+            services[index].status = .offline
+            services[index].lastPing = 0
+        }
+        if let index = virtualMachines.indices.randomElement() {
+            virtualMachines[index].status = .offline
+            virtualMachines[index].lastPing = 0
+        }
+    }
+    
+    private func simulateMixedState() {
+        // Create a mix of warnings and errors
+        for index in servers.indices {
+            servers[index].status = SystemStatus.allCases.randomElement() ?? .online
+        }
+        for index in services.indices {
+            services[index].status = SystemStatus.allCases.randomElement() ?? .online
+        }
+        for index in virtualMachines.indices {
+            virtualMachines[index].status = SystemStatus.allCases.randomElement() ?? .online
+        }
+    }
+    
+    private func simulateRecovery() {
+        // Gradually recover systems from error/warning states
+        for index in servers.indices {
+            if servers[index].status == .offline {
+                servers[index].status = .warning
+            } else if servers[index].status == .warning {
+                servers[index].status = .online
+            }
+        }
+        
+        for index in services.indices {
+            if services[index].status == .offline {
+                services[index].status = .warning
+            } else if services[index].status == .warning {
+                services[index].status = .online
+            }
+        }
+        
+        for index in virtualMachines.indices {
+            if virtualMachines[index].status == .offline {
+                virtualMachines[index].status = .warning
+            } else if virtualMachines[index].status == .warning {
+                virtualMachines[index].status = .online
+            }
+        }
+    }
+    
+    private func resetAllStatuses() {
+        // Reset servers
+        for i in servers.indices {
+            servers[i].status = .online
+            servers[i].lastPing = Double.random(in: 5...50)
+            if servers[i].pingHistory.isEmpty {
+                servers[i].pingHistory = Array(repeating: Double.random(in: 5...50), count: maxHistoryPoints)
+            }
+        }
+        
+        // Reset services
+        for i in services.indices {
+            services[i].status = .online
+            services[i].lastPing = Double.random(in: 5...50)
+            if services[i].pingHistory.isEmpty {
+                services[i].pingHistory = Array(repeating: Double.random(in: 5...50), count: maxHistoryPoints)
+            }
+        }
+        
+        // Reset virtual machines
+        for i in virtualMachines.indices {
+            virtualMachines[i].status = .online
+            virtualMachines[i].lastPing = Double.random(in: 5...50)
+            if virtualMachines[i].pingHistory.isEmpty {
+                virtualMachines[i].pingHistory = Array(repeating: Double.random(in: 5...50), count: maxHistoryPoints)
+            }
+            virtualMachines[i].resources.updateMockValues()
+        }
+        
+        // Update overall status
+        updateOverallStatus()
     }
 } 
