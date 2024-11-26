@@ -10,24 +10,76 @@ import Charts
 
 struct ContentView: View {
     @StateObject private var monitoringService = MonitoringService()
-    @State private var expandedSections: Set<String> = ["servers", "services", "vms", "device"]
+    @State private var expandedSections: Set<String> = ["device", "servers", "services", "vms"]
     @AppStorage("apiEndpoint") private var apiEndpoint: String = ""
+    
+    private var hasActiveMonitoring: Bool {
+        monitoringService.deviceMonitor != nil || 
+        monitoringService.isSimulated ||
+        !apiEndpoint.isEmpty
+    }
+    
+    private var totalDevices: Int {
+        monitoringService.servers.count + 
+        monitoringService.services.count + 
+        monitoringService.virtualMachines.count + 
+        (monitoringService.deviceMonitor != nil ? 1 : 0)
+    }
+    
+    private var onlineDevices: Int {
+        let onlineServers = monitoringService.servers.filter { $0.status == .online }.count
+        let onlineServices = monitoringService.services.filter { $0.status == .online }.count
+        let onlineVMs = monitoringService.virtualMachines.filter { $0.status == .online }.count
+        let deviceOnline = monitoringService.deviceMonitor?.status == .online ? 1 : 0
+        return onlineServers + onlineServices + onlineVMs + deviceOnline
+    }
+    
+    private var orderedSections: [(String, Int, [any StatusProvider])] {
+        let sections = [
+            ("Servers", monitoringService.servers.filter { $0.status == .online }.count, monitoringService.servers as [any StatusProvider]),
+            ("Virtual Machines", monitoringService.virtualMachines.filter { $0.status == .online }.count, monitoringService.virtualMachines as [any StatusProvider]),
+            ("Services", monitoringService.services.filter { $0.status == .online }.count, monitoringService.services as [any StatusProvider])
+        ]
+        
+        // Sort sections: non-empty first, then empty ones
+        return sections.sorted { first, second in
+            // If both are empty or both are non-empty, maintain original order
+            if first.2.isEmpty == second.2.isEmpty {
+                return sections.firstIndex(where: { $0.0 == first.0 })! < 
+                       sections.firstIndex(where: { $0.0 == second.0 })!
+            }
+            // Non-empty sections go first
+            return !first.2.isEmpty
+        }
+    }
     
     var body: some View {
         NavigationView {
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 20) {
-                    // Overall Status Widget - Always show
-                    OverallStatusWidget(monitoringService: monitoringService)
+                    // Overall Status Widget
+                    if hasActiveMonitoring {
+                        OverallStatusWidget(
+                            monitoringService: monitoringService,
+                            totalDevices: totalDevices,
+                            onlineDevices: onlineDevices,
+                            servers: monitoringService.servers.filter { $0.status == .online }.count,
+                            services: monitoringService.services.filter { $0.status == .online }.count,
+                            vms: monitoringService.virtualMachines.filter { $0.status == .online }.count
+                        )
                         .padding(.horizontal)
-                        .opacity(apiEndpoint.isEmpty && !monitoringService.isSimulated ? 0.5 : 1.0)
+                    } else {
+                        OverallStatusWidget(monitoringService: monitoringService)
+                            .padding(.horizontal)
+                            .opacity(0.5)
+                    }
                     
-                    // Local Device Section - Always show if monitoring is enabled
+                    // Local Device Section - Always first if enabled
                     if let device = monitoringService.deviceMonitor {
                         CollapsibleSection(
                             title: "Local Device",
                             subtitle: "Status: \(device.status.rawValue) • Ping: \(Int(device.lastPing))ms",
-                            isExpanded: expandedSections.contains("device")
+                            isExpanded: true  // Always expanded when present
                         ) {
                             NavigationLink(destination: DeviceDetailView(device: device)) {
                                 DeviceWidget(device: device)
@@ -35,77 +87,47 @@ struct ContentView: View {
                             }
                         }
                         .padding(.horizontal)
+                    }
+                    
+                    // Ordered Sections
+                    ForEach(orderedSections, id: \.0) { title, onlineCount, items in
+                        CollapsibleSection(
+                            title: title,
+                            subtitle: items.isEmpty ? "0 Online" : statusSummary(items),
+                            isExpanded: title == "Virtual Machines" ? true : (!items.isEmpty && expandedSections.contains(title.lowercased()))
+                        ) {
+                            if !items.isEmpty {
+                                Group {
+                                    switch title {
+                                    case "Servers":
+                                        ServersListWidget(
+                                            servers: monitoringService.servers,
+                                            services: monitoringService.services,
+                                            monitoringService: monitoringService
+                                        )
+                                    case "Services":
+                                        ServicesWidget(
+                                            services: monitoringService.services,
+                                            servers: monitoringService.servers
+                                        )
+                                    case "Virtual Machines":
+                                        VMsWidget(
+                                            vms: monitoringService.virtualMachines,
+                                            servers: monitoringService.servers,
+                                            monitoringService: monitoringService
+                                        )
+                                    default:
+                                        EmptyView()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
                         .onTapGesture {
-                            toggleSection("device")
+                            if !items.isEmpty {
+                                toggleSection(title.lowercased())
+                            }
                         }
-                    }
-                    
-                    // Servers Section
-                    CollapsibleSection(
-                        title: "Servers",
-                        subtitle: statusSummary(monitoringService.servers),
-                        isExpanded: expandedSections.contains("servers")
-                    ) {
-                        if monitoringService.servers.isEmpty {
-                            Text("No servers available")
-                                .foregroundColor(.secondary)
-                                .padding()
-                        } else {
-                            ServersListWidget(
-                                servers: monitoringService.servers,
-                                services: monitoringService.services,
-                                monitoringService: monitoringService
-                            )
-                        }
-                    }
-                    .padding(.horizontal)
-                    .onTapGesture {
-                        toggleSection("servers")
-                    }
-                    
-                    // Services Section
-                    CollapsibleSection(
-                        title: "Services",
-                        subtitle: statusSummary(monitoringService.services),
-                        isExpanded: expandedSections.contains("services")
-                    ) {
-                        if monitoringService.services.isEmpty {
-                            Text("No services available")
-                                .foregroundColor(.secondary)
-                                .padding()
-                        } else {
-                            ServicesWidget(
-                                services: monitoringService.services,
-                                servers: monitoringService.servers
-                            )
-                        }
-                    }
-                    .padding(.horizontal)
-                    .onTapGesture {
-                        toggleSection("services")
-                    }
-                    
-                    // VMs Section
-                    CollapsibleSection(
-                        title: "Virtual Machines",
-                        subtitle: statusSummary(monitoringService.virtualMachines),
-                        isExpanded: expandedSections.contains("vms")
-                    ) {
-                        if monitoringService.virtualMachines.isEmpty {
-                            Text("No virtual machines available")
-                                .foregroundColor(.secondary)
-                                .padding()
-                        } else {
-                            VMsWidget(
-                                vms: monitoringService.virtualMachines,
-                                servers: monitoringService.servers,
-                                monitoringService: monitoringService
-                            )
-                        }
-                    }
-                    .padding(.horizontal)
-                    .onTapGesture {
-                        toggleSection("vms")
                     }
                 }
                 .padding(.vertical)

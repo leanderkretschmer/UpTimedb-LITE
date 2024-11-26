@@ -8,9 +8,9 @@ struct SettingsView: View {
     @AppStorage("dynamicAppIcon") private var dynamicAppIcon: Bool = true
     @AppStorage("backgroundMonitoringEnabled") private var backgroundMonitoringEnabled: Bool = false
     @AppStorage("backgroundCheckInterval") private var backgroundCheckInterval: Double = 300
-    @AppStorage("simulatedServers") private var simulatedServers: Int = 2
-    @AppStorage("simulatedServices") private var simulatedServices: Int = 4
-    @AppStorage("simulatedVMs") private var simulatedVMs: Int = 2
+    @AppStorage("simulatedServers") private var simulatedServers: Int = 1
+    @AppStorage("simulatedServices") private var simulatedServices: Int = 1
+    @AppStorage("simulatedVMs") private var simulatedVMs: Int = 1
     @AppStorage("showAdvancedInfo") private var showAdvancedInfo: Bool = false
     @ObservedObject var monitoringService: MonitoringService
     @StateObject private var colorSchemeManager = ColorSchemeManager()
@@ -26,18 +26,18 @@ struct SettingsView: View {
     
     var body: some View {
         Form {
-            if !apiEndpoint.isEmpty {
-                Section(header: Text("API Configuration")) {
-                    TextField("API Endpoint", text: $apiEndpoint)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                    
-                    SecureField("API Key", text: .constant(""))
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                }
+            // 1. API Configuration
+            Section(header: Text("API Configuration")) {
+                TextField("API Endpoint", text: $apiEndpoint)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                
+                SecureField("API Key", text: .constant(""))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
             }
             
+            // 2. Monitoring
             Section(header: Text("Monitoring")) {
                 Toggle("Background Monitoring", isOn: $backgroundMonitoringEnabled)
                     .onChange(of: backgroundMonitoringEnabled) { newValue in
@@ -57,6 +57,7 @@ struct SettingsView: View {
                 Toggle("Show Advanced System Info", isOn: $showAdvancedInfo)
             }
             
+            // 3. Device Monitoring
             Section(header: Text("Device Monitoring")) {
                 Toggle("Monitor This Device", isOn: $monitoringService.monitorLocalDevice)
                     .onChange(of: monitoringService.monitorLocalDevice) { newValue in
@@ -74,28 +75,53 @@ struct SettingsView: View {
                 }
             }
             
-            if monitoringService.isSimulated {
-                Section(header: Text("Simulation")) {
-                    Toggle("Enable Simulation", isOn: $monitoringService.isSimulated)
-                    
+            // 4. Simulation
+            Section(header: Text("Simulation")) {
+                Toggle("Enable Simulation", isOn: $simulationEnabled)
+                    .onChange(of: simulationEnabled) { newValue in
+                        monitoringService.isSimulated = newValue
+                    }
+                
+                if simulationEnabled {
                     VStack(alignment: .leading) {
                         Text("Servers: \(simulatedServers)")
                         Slider(value: .init(
                             get: { Double(simulatedServers) },
                             set: { simulatedServers = Int($0) }
-                        ), in: 0...8, step: 1)
-                        
-                        Text("Services: \(simulatedServices)")
-                        Slider(value: .init(
-                            get: { Double(simulatedServices) },
-                            set: { simulatedServices = Int($0) }
-                        ), in: 0...12, step: 1)
+                        ), in: 1...8, step: 1)
+                        .onAppear {
+                            simulatedServers = max(1, monitoringService.servers.count)
+                        }
+                        .onDisappear {
+                            monitoringService.simulatedServers = max(1, simulatedServers)
+                            monitoringService.setupMockData()
+                        }
                         
                         Text("Virtual Machines: \(simulatedVMs)")
                         Slider(value: .init(
                             get: { Double(simulatedVMs) },
                             set: { simulatedVMs = Int($0) }
                         ), in: 0...6, step: 1)
+                        .onAppear {
+                            simulatedVMs = monitoringService.virtualMachines.count
+                        }
+                        .onDisappear {
+                            monitoringService.simulatedVMs = simulatedVMs
+                            monitoringService.setupMockData()
+                        }
+                        
+                        Text("Services: \(simulatedServices)")
+                        Slider(value: .init(
+                            get: { Double(simulatedServices) },
+                            set: { simulatedServices = Int($0) }
+                        ), in: 0...12, step: 1)
+                        .onAppear {
+                            simulatedServices = monitoringService.services.count
+                        }
+                        .onDisappear {
+                            monitoringService.simulatedServices = simulatedServices
+                            monitoringService.setupMockData()
+                        }
                     }
                     
                     Toggle("Simulate Downtime", isOn: $simulateDowntime)
@@ -103,6 +129,7 @@ struct SettingsView: View {
                 }
             }
             
+            // 5. Appearance
             Section(header: Text("Appearance")) {
                 Toggle("Dynamic App Icon", isOn: $dynamicAppIcon)
                 Toggle("Use System Theme", isOn: $colorSchemeManager.useSystemColorScheme)

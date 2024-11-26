@@ -40,8 +40,8 @@ class MonitoringService: ObservableObject {
             updateOverallStatus()
         }
     }
-    @Published var simulatedServers: Int = 2
-    @Published var simulatedServices: Int = 3
+    @Published var simulatedServers: Int = 1
+    @Published var simulatedServices: Int = 1
     @Published var simulateDowntime: Bool = false
     @Published var simulateWarnings: Bool = false
     @Published var dynamicAppIcon: Bool = true
@@ -49,7 +49,7 @@ class MonitoringService: ObservableObject {
     @Published var isDeepTesting = false
     @Published var deepTestProgress = 0.0
     private var deepTestTimer: Timer?
-    @Published var simulatedVMs: Int = 2
+    @Published var simulatedVMs: Int = 1
     private var timer: Timer?
     private var warningTimer: Timer?
     private var lastWarningCheck = Date()
@@ -59,6 +59,8 @@ class MonitoringService: ObservableObject {
     @Published var deviceMonitor: DeviceMonitor?
     @Published var monitorLocalDevice: Bool = false
     private var deviceTimer: Timer?
+    private var pingHistoryData: [(timestamp: Date, value: Double)] = []
+    @Published var overallPingHistory: [(timestamp: Date, value: Double)] = []
     
     init() {
         setupNotifications()
@@ -121,6 +123,32 @@ class MonitoringService: ObservableObject {
     
     private func updateMonitoringData() {
         if isSimulated {
+            // Store current ping values with timestamp
+            let timestamp = Date()
+            let pings = servers.map { $0.lastPing } +
+                       services.map { $0.lastPing } +
+                       virtualMachines.map { $0.lastPing }
+            
+            if let devicePing = deviceMonitor?.lastPing {
+                pingHistoryData.append((timestamp, devicePing))
+            }
+            
+            for ping in pings {
+                pingHistoryData.append((timestamp, ping))
+            }
+            
+            // Keep only last 24 hours of data
+            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+            pingHistoryData = pingHistoryData.filter { $0.timestamp > cutoff }
+            
+            // Calculate and store overall ping
+            let overallPing = calculateOverallPing()
+            overallPingHistory.append((timestamp: Date(), value: overallPing))
+            
+            // Keep only last 24 hours
+            let cutoffOverallPing = Date().addingTimeInterval(-24 * 60 * 60)
+            overallPingHistory = overallPingHistory.filter { $0.timestamp > cutoffOverallPing }
+            
             // Update servers
             for i in servers.indices {
                 if servers[i].status == .offline { continue }
@@ -262,19 +290,62 @@ class MonitoringService: ObservableObject {
     }
     
     private func updateOverallStatus() {
-        if servers.contains(where: { $0.status == .offline }) || 
-           services.contains(where: { $0.status == .offline }) ||
-           virtualMachines.contains(where: { $0.status == .offline }) {
+        // Calculate weighted ping averages
+        let serverPings = calculateWeightedPings(servers.map { $0.lastPing })
+        let servicePings = calculateWeightedPings(services.map { $0.lastPing })
+        let vmPings = calculateWeightedPings(virtualMachines.map { $0.lastPing })
+        let devicePing = deviceMonitor.map { calculateWeightedPings([$0.lastPing]) } ?? 0
+        
+        // Get highest weighted ping
+        let highestPing = max(serverPings, servicePings, vmPings, devicePing)
+        
+        // Check for offline status first
+        let hasOfflineStatus = servers.contains(where: { $0.status == .offline }) || 
+                              services.contains(where: { $0.status == .offline }) ||
+                              virtualMachines.contains(where: { $0.status == .offline }) ||
+                              deviceMonitor?.status == .offline
+        
+        // Check for warning status
+        let hasWarningStatus = servers.contains(where: { $0.status == .warning }) || 
+                              services.contains(where: { $0.status == .warning }) ||
+                              virtualMachines.contains(where: { $0.status == .warning }) ||
+                              deviceMonitor?.status == .warning
+        
+        // Determine overall status based on weighted pings and existing statuses
+        if hasOfflineStatus {
             overallStatus = .offline
-        } else if servers.contains(where: { $0.status == .warning }) || 
-                  services.contains(where: { $0.status == .warning }) ||
-                  virtualMachines.contains(where: { $0.status == .warning }) {
+        } else if hasWarningStatus || highestPing > 100 {
             overallStatus = .warning
+        } else if !isSimulated && deviceMonitor == nil {
+            overallStatus = .offline
         } else {
             overallStatus = .online
         }
         
         updateAppIcon()
+    }
+    
+    private func calculateWeightedPings(_ pings: [Double]) -> Double {
+        guard !pings.isEmpty else { return 0 }
+        
+        // Sort pings in ascending order
+        let sortedPings = pings.sorted()
+        
+        // Calculate weights based on ping values
+        // Higher pings get exponentially higher weights
+        let weights = sortedPings.map { ping -> Double in
+            if ping > 200 { return 4.0 }      // Extremely high ping
+            else if ping > 150 { return 3.0 }  // Very high ping
+            else if ping > 100 { return 2.0 }  // High ping
+            else if ping > 50 { return 1.5 }   // Moderate ping
+            else { return 1.0 }                // Normal ping
+        }
+        
+        // Calculate weighted average
+        let totalWeight = weights.reduce(0, +)
+        let weightedSum = zip(sortedPings, weights).map { $0.0 * $0.1 }.reduce(0, +)
+        
+        return weightedSum / totalWeight
     }
     
     func updateServerNotificationSetting(serverId: UUID, notifyOnOffline: Bool? = nil, notifyOnStorageWarning: Bool? = nil, storageThreshold: Double? = nil) {
@@ -559,6 +630,8 @@ class MonitoringService: ObservableObject {
         deviceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateDeviceStatus()
         }
+        // Initial update
+        updateDeviceStatus()
     }
     
     func stopDeviceMonitoring() {
@@ -582,8 +655,15 @@ class MonitoringService: ObservableObject {
         pingCloudflare { pingTime in
             DispatchQueue.main.async {
                 device.lastPing = pingTime
+                
+                // Initialize ping history if empty
+                if device.pingHistory.isEmpty {
+                    device.pingHistory = Array(repeating: 0.0, count: 20)
+                }
+                
+                // Add new ping and remove oldest if needed
                 device.pingHistory.append(pingTime)
-                if device.pingHistory.count > self.maxHistoryPoints {
+                if device.pingHistory.count > 20 {  // Keep only last 20 values
                     device.pingHistory.removeFirst()
                 }
                 
@@ -610,5 +690,36 @@ class MonitoringService: ObservableObject {
             completion(error == nil ? pingTime : 0)
         }
         task.resume()
+    }
+    
+    func getPingHistory(forLast seconds: Int) -> [(timestamp: Date, value: Double)] {
+        let cutoff = Date().addingTimeInterval(-Double(seconds))
+        return pingHistoryData.filter { $0.timestamp > cutoff }
+    }
+    
+    private func calculateOverallPing() -> Double {
+        var pings: [Double] = []
+        
+        // Collect all current pings
+        pings.append(contentsOf: servers.map { $0.lastPing })
+        pings.append(contentsOf: services.map { $0.lastPing })
+        pings.append(contentsOf: virtualMachines.map { $0.lastPing })
+        if let devicePing = deviceMonitor?.lastPing {
+            pings.append(devicePing)
+        }
+        
+        // Calculate weighted average
+        let weights = pings.map { ping -> Double in
+            if ping > 200 { return 4.0 }      // Extremely high ping
+            else if ping > 150 { return 3.0 }  // Very high ping
+            else if ping > 100 { return 2.0 }  // High ping
+            else if ping > 50 { return 1.5 }   // Moderate ping
+            else { return 1.0 }                // Normal ping
+        }
+        
+        let totalWeight = weights.reduce(0, +)
+        let weightedSum = zip(pings, weights).map { $0 * $1 }.reduce(0, +)
+        
+        return totalWeight > 0 ? weightedSum / totalWeight : 0
     }
 } 
