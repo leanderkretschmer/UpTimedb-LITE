@@ -10,61 +10,102 @@ import Charts
 
 struct ContentView: View {
     @StateObject private var monitoringService = MonitoringService()
-    @State private var expandedSections: Set<String> = ["servers", "services", "vms"]
+    @State private var expandedSections: Set<String> = ["servers", "services", "vms", "device"]
+    @AppStorage("apiEndpoint") private var apiEndpoint: String = ""
     
     var body: some View {
         NavigationView {
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 20) {
-                    if monitoringService.isSimulated {
-                        OverallStatusWidget(monitoringService: monitoringService)
-                            .padding(.horizontal)
-                        
+                    // Overall Status Widget - Always show
+                    OverallStatusWidget(monitoringService: monitoringService)
+                        .padding(.horizontal)
+                        .opacity(apiEndpoint.isEmpty && !monitoringService.isSimulated ? 0.5 : 1.0)
+                    
+                    // Local Device Section - Always show if monitoring is enabled
+                    if let device = monitoringService.deviceMonitor {
                         CollapsibleSection(
-                            title: "Servers",
-                            subtitle: statusSummary(for: monitoringService.servers),
-                            isExpanded: expandedSections.contains("servers")
+                            title: "Local Device",
+                            subtitle: "Status: \(device.status.rawValue) • Ping: \(Int(device.lastPing))ms",
+                            isExpanded: expandedSections.contains("device")
                         ) {
-                            ServersListWidget(servers: monitoringService.servers,
-                                        services: monitoringService.services,
-                                        monitoringService: monitoringService)
+                            NavigationLink(destination: DeviceDetailView(device: device)) {
+                                DeviceWidget(device: device)
+                                    .frame(maxWidth: .infinity)
+                            }
                         }
                         .padding(.horizontal)
                         .onTapGesture {
-                            toggleSection("servers")
+                            toggleSection("device")
                         }
-                        
-                        CollapsibleSection(
-                            title: "Services",
-                            subtitle: statusSummary(for: monitoringService.services),
-                            isExpanded: expandedSections.contains("services")
-                        ) {
-                            ServicesWidget(services: monitoringService.services,
-                                         servers: monitoringService.servers)
+                    }
+                    
+                    // Servers Section
+                    CollapsibleSection(
+                        title: "Servers",
+                        subtitle: statusSummary(monitoringService.servers),
+                        isExpanded: expandedSections.contains("servers")
+                    ) {
+                        if monitoringService.servers.isEmpty {
+                            Text("No servers available")
+                                .foregroundColor(.secondary)
+                                .padding()
+                        } else {
+                            ServersListWidget(
+                                servers: monitoringService.servers,
+                                services: monitoringService.services,
+                                monitoringService: monitoringService
+                            )
                         }
-                        .padding(.horizontal)
-                        .onTapGesture {
-                            toggleSection("services")
-                        }
-                        
-                        CollapsibleSection(
-                            title: "Virtual Machines",
-                            subtitle: statusSummary(for: monitoringService.virtualMachines),
-                            isExpanded: expandedSections.contains("vms")
-                        ) {
-                            VMsWidget(
-                                vms: monitoringService.virtualMachines,
+                    }
+                    .padding(.horizontal)
+                    .onTapGesture {
+                        toggleSection("servers")
+                    }
+                    
+                    // Services Section
+                    CollapsibleSection(
+                        title: "Services",
+                        subtitle: statusSummary(monitoringService.services),
+                        isExpanded: expandedSections.contains("services")
+                    ) {
+                        if monitoringService.services.isEmpty {
+                            Text("No services available")
+                                .foregroundColor(.secondary)
+                                .padding()
+                        } else {
+                            ServicesWidget(
+                                services: monitoringService.services,
                                 servers: monitoringService.servers
                             )
                         }
-                        .padding(.horizontal)
-                        .onTapGesture {
-                            toggleSection("vms")
+                    }
+                    .padding(.horizontal)
+                    .onTapGesture {
+                        toggleSection("services")
+                    }
+                    
+                    // VMs Section
+                    CollapsibleSection(
+                        title: "Virtual Machines",
+                        subtitle: statusSummary(monitoringService.virtualMachines),
+                        isExpanded: expandedSections.contains("vms")
+                    ) {
+                        if monitoringService.virtualMachines.isEmpty {
+                            Text("No virtual machines available")
+                                .foregroundColor(.secondary)
+                                .padding()
+                        } else {
+                            VMsWidget(
+                                vms: monitoringService.virtualMachines,
+                                servers: monitoringService.servers,
+                                monitoringService: monitoringService
+                            )
                         }
-                    } else {
-                        ContentUnavailableView("Simulation Disabled",
-                            systemImage: "server.rack",
-                            description: Text("Enable simulation in settings to see demo data"))
+                    }
+                    .padding(.horizontal)
+                    .onTapGesture {
+                        toggleSection("vms")
                     }
                 }
                 .padding(.vertical)
@@ -82,10 +123,10 @@ struct ContentView: View {
         .navigationViewStyle(StackNavigationViewStyle())
     }
     
-    private func statusSummary<T: StatusProvider>(for items: [T]) -> String {
-        let online = items.filter { $0.status == .online }.count
-        let errors = items.filter { $0.status == .offline }.count
-        let warnings = items.filter { $0.status == .warning }.count
+    private func statusSummary(_ items: [any StatusProvider]) -> String {
+        let online = items.filter { $0.status == SystemStatus.online }.count
+        let errors = items.filter { $0.status == SystemStatus.offline }.count
+        let warnings = items.filter { $0.status == SystemStatus.warning }.count
         return "\(online)/\(items.count) Online • \(errors) Errors • \(warnings) Warnings"
     }
     
@@ -98,19 +139,11 @@ struct ContentView: View {
     }
 }
 
-protocol StatusProvider {
-    var status: SystemStatus { get }
-}
-
-extension Server: StatusProvider {}
-extension Service: StatusProvider {}
-extension VirtualMachine: StatusProvider {}
-
 struct CollapsibleSection<Content: View>: View {
     let title: String
     let subtitle: String
     let isExpanded: Bool
-    let content: () -> Content
+    @ViewBuilder let content: () -> Content
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
@@ -128,18 +161,10 @@ struct CollapsibleSection<Content: View>: View {
                 .foregroundColor(.secondary)
             
             if isExpanded {
-                if horizontalSizeClass == .regular {
-                    // Landscape: Grid layout
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 16) {
-                        content()
-                    }
-                } else {
-                    // Portrait: Stack layout
+                VStack(spacing: 16) {
                     content()
                 }
+                .frame(maxWidth: .infinity)
             }
         }
         .padding()

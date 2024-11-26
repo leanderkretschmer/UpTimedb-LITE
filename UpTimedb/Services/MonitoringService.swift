@@ -2,13 +2,44 @@ import Foundation
 import UserNotifications
 import SwiftUI
 import BackgroundTasks
+import Darwin
+import Network
+
+private let HOST_CPU_LOAD_INFO = 3
+private let CPU_STATE_USER = 0
+private let CPU_STATE_SYSTEM = 1
+private let CPU_STATE_IDLE = 2
+private let CPU_STATE_NICE = 3
+private let CPU_STATE_MAX = 4
 
 class MonitoringService: ObservableObject {
     @Published var servers: [Server] = []
     @Published var services: [Service] = []
     @Published var virtualMachines: [VirtualMachine] = []
     @Published var overallStatus: SystemStatus = .online
-    @Published var isSimulated: Bool = true
+    @AppStorage("simulationEnabled") var isSimulated: Bool = true {
+        didSet {
+            if isSimulated {
+                setupMockData()
+                startMonitoring()
+            } else {
+                // Clear all data when simulation is disabled
+                servers.removeAll()
+                services.removeAll()
+                virtualMachines.removeAll()
+                timer?.invalidate()
+                timer = nil
+                warningTimer?.invalidate()
+                warningTimer = nil
+                deviceTimer?.invalidate()
+                deviceTimer = nil
+                simulateDowntime = false
+                simulateWarnings = false
+                deviceMonitor = nil
+            }
+            updateOverallStatus()
+        }
+    }
     @Published var simulatedServers: Int = 2
     @Published var simulatedServices: Int = 3
     @Published var simulateDowntime: Bool = false
@@ -19,13 +50,15 @@ class MonitoringService: ObservableObject {
     @Published var deepTestProgress = 0.0
     private var deepTestTimer: Timer?
     @Published var simulatedVMs: Int = 2
-    
     private var timer: Timer?
     private var warningTimer: Timer?
     private var lastWarningCheck = Date()
     private let warningInterval: TimeInterval = 30 // Check every 30 seconds
     private let maxHistoryPoints = 30
     private let backgroundTaskIdentifier = "de.leander-kretschmer.UpTimedb.monitoring"
+    @Published var deviceMonitor: DeviceMonitor?
+    @Published var monitorLocalDevice: Bool = false
+    private var deviceTimer: Timer?
     
     init() {
         setupNotifications()
@@ -34,13 +67,16 @@ class MonitoringService: ObservableObject {
             startMonitoring()
         }
         
-        // Add observer for dark mode changes
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(updateAppIconForAppearanceChange),
             name: UIApplication.significantTimeChangeNotification,
             object: nil
         )
+        
+        if monitorLocalDevice {
+            startDeviceMonitoring()
+        }
     }
     
     @objc private func updateAppIconForAppearanceChange() {
@@ -515,5 +551,64 @@ class MonitoringService: ObservableObject {
         
         // Update overall status
         updateOverallStatus()
+    }
+    
+    func startDeviceMonitoring() {
+        deviceMonitor = DeviceMonitor.createLocal()
+        deviceTimer?.invalidate()
+        deviceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updateDeviceStatus()
+        }
+    }
+    
+    func stopDeviceMonitoring() {
+        deviceTimer?.invalidate()
+        deviceTimer = nil
+        deviceMonitor = nil
+    }
+    
+    private func updateDeviceStatus() {
+        guard var device = deviceMonitor else { return }
+        
+        // Set static zero values for resources
+        device.resources.cpuUsage = 0
+        device.resources.memoryUsage = 0
+        device.resources.drives = [
+            DriveInfo(name: "System", totalSpace: 512, usedSpace: 0),
+            DriveInfo(name: "Data", totalSpace: 1024, usedSpace: 0)
+        ]
+        
+        // Real ping test to 1.1.1.1
+        pingCloudflare { pingTime in
+            DispatchQueue.main.async {
+                device.lastPing = pingTime
+                device.pingHistory.append(pingTime)
+                if device.pingHistory.count > self.maxHistoryPoints {
+                    device.pingHistory.removeFirst()
+                }
+                
+                // Update status based on real ping
+                if pingTime == 0 {
+                    device.status = .offline
+                } else if pingTime > 100 {
+                    device.status = .warning
+                } else {
+                    device.status = .online
+                }
+                
+                self.deviceMonitor = device
+                self.updateOverallStatus()
+            }
+        }
+    }
+    
+    private func pingCloudflare(completion: @escaping (Double) -> Void) {
+        let startTime = Date()
+        let url = URL(string: "https://1.1.1.1")!
+        let task = URLSession.shared.dataTask(with: url) { _, _, error in
+            let pingTime = Date().timeIntervalSince(startTime) * 1000 // Convert to milliseconds
+            completion(error == nil ? pingTime : 0)
+        }
+        task.resume()
     }
 } 

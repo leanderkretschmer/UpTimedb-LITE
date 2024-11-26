@@ -4,12 +4,17 @@ import Charts
 struct VMsWidget: View {
     let vms: [VirtualMachine]
     let servers: [Server]
+    @ObservedObject var monitoringService: MonitoringService
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
-        ForEach(vms) { vm in
-            VMCard(vm: vm, server: servers.first(where: { $0.id == vm.parentServerId })!)
-                .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
+        VStack(spacing: 16) {
+            ForEach(vms) { vm in
+                if let server = servers.first(where: { $0.id == vm.parentServerId }) {
+                    VMCard(vm: vm, server: server, monitoringService: monitoringService)
+                        .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
+                }
+            }
         }
     }
 }
@@ -18,10 +23,18 @@ struct VMCard: View {
     let vm: VirtualMachine
     let server: Server
     @AppStorage("showAdvancedInfo") private var showAdvancedInfo: Bool = false
+    @ObservedObject var monitoringService: MonitoringService
     
     var body: some View {
         NavigationLink(destination: VMDetailView(vm: vm, server: server)) {
             VStack(alignment: .leading, spacing: 8) {
+                if monitoringService.isSimulated {
+                    Label("Simulated Data", systemImage: "sparkles")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 4)
+                }
+                
                 HStack {
                     Text(vm.name)
                         .font(.subheadline)
@@ -170,5 +183,5 @@ struct VMDetailView: View {
         parentServerId: server.id
     )
     
-    VMsWidget(vms: [vm], servers: [server])
+    VMsWidget(vms: [vm], servers: [server], monitoringService: MonitoringService())
 } 

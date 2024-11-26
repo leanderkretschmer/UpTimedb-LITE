@@ -8,7 +8,7 @@ struct ServicesWidget: View {
     
     var body: some View {
         ForEach(services) { service in
-            ServiceCard(service: service, server: servers.first(where: { $0.id == service.serverId })!)
+            ServiceCard(service: service, server: servers.first(where: { $0.id == service.serverId })!, monitoringService: MonitoringService())
                 .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
         }
     }
@@ -17,10 +17,18 @@ struct ServicesWidget: View {
 struct ServiceCard: View {
     let service: Service
     let server: Server
+    @ObservedObject var monitoringService: MonitoringService
     
     var body: some View {
         NavigationLink(destination: ServiceDetailView(service: service, server: server)) {
             VStack(alignment: .leading, spacing: 8) {
+                if monitoringService.isSimulated {
+                    Label("Simulated Data", systemImage: "sparkles")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 4)
+                }
+                
                 Text("Running on \(server.name)")
                     .font(.caption)
                     .foregroundColor(.secondary)

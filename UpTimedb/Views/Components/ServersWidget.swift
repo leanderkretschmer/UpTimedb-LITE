@@ -8,9 +8,11 @@ struct ServersListWidget: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     var body: some View {
-        ForEach(servers) { server in
-            ServerCardView(server: server, services: services, monitoringService: monitoringService)
-                .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
+        VStack(spacing: 16) {
+            ForEach(servers) { server in
+                ServerCardView(server: server, services: services, monitoringService: monitoringService)
+                    .frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
+            }
         }
     }
 }
@@ -25,9 +27,20 @@ struct ServerCardView: View {
         services.filter { $0.serverId == server.id }
     }
     
+    private var vmsOnServer: [VirtualMachine] {
+        monitoringService.virtualMachines.filter { $0.parentServerId == server.id }
+    }
+    
     var body: some View {
         NavigationLink(destination: ServerDetailView(server: server, services: services, monitoringService: monitoringService)) {
             VStack(alignment: .leading, spacing: 8) {
+                if monitoringService.isSimulated {
+                    Label("Simulated Data", systemImage: "sparkles")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 4)
+                }
+                
                 HStack {
                     Text(server.name)
                         .font(.subheadline)
@@ -50,9 +63,12 @@ struct ServerCardView: View {
                     .foregroundColor(.secondary)
                 }
                 
-                Text("Services: \(servicesOnServer.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 12) {
+                    Label("\(servicesOnServer.count) Services", systemImage: "gear")
+                    Label("\(vmsOnServer.count) VMs", systemImage: "cpu")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
                 
                 Chart {
                     ForEach(Array(server.pingHistory.enumerated()), id: \.offset) { index, ping in
